@@ -1,0 +1,138 @@
+{
+  "aspect_ratio": {
+    "description": "默认图片比例",
+    "type": "string",
+    "hint": "用户未指定比例时使用此默认值。支持比例(如 1:1、16:9)或像素值(如 1024x1024)。比例会自动按短边 1024 转为像素 size 传给魔搭",
+    "default": "1:1"
+  },
+  "models": {
+    "description": "生图模型配置",
+    "type": "template_list",
+    "hint": "点击 + 添加模型配置。每个模型可设置独立的 API、触发词和参数",
+    "default": [],
+    "templates": {
+      "model_item": {
+        "name": "模型",
+        "hint": "配置一个魔搭生图模型（密钥、模型 ID、触发词等）",
+        "items": {
+          "trigger_t2i": {
+            "description": "文生图触发词",
+            "type": "string",
+            "hint": "用户发送此词 + 提示词触发文生图，如：魔搭生图",
+            "default": "魔搭生图"
+          },
+          "trigger_i2i": {
+            "description": "图生图触发词",
+            "type": "string",
+            "hint": "用户发送此词 + 提示词 + 图片触发图编辑，如：魔搭改图（需使用支持编辑的模型，如 Qwen-Image-Edit）",
+            "default": "魔搭改图"
+          },
+          "url": {
+            "description": "API 基础 URL",
+            "type": "string",
+            "hint": "魔搭 API-Inference 基础地址，一般固定为 https://api-inference.modelscope.cn，留空则使用默认地址",
+            "default": "https://api-inference.modelscope.cn"
+          },
+          "apikey": {
+            "description": "API Key",
+            "type": "string",
+            "hint": "魔搭社区 Access Token，以 ms- 开头，在 https://modelscope.cn/my/myaccesstoken 获取",
+            "default": ""
+          },
+          "model_id": {
+            "description": "模型 ID",
+            "type": "string",
+            "hint": "如 krea/Krea-2-Turbo、modelscope/Z-Image-Turbo、Qwen/Qwen-Image、Qwen/Qwen-Image-Edit、black-forest-labs/FLUX.1-dev、stability/stable-diffusion-3.5-large",
+            "default": "krea/Krea-2-Turbo"
+          },
+          "negative_prompt": {
+            "description": "负向提示词",
+            "type": "text",
+            "hint": "可选。希望避免的内容，如 lowres, bad anatomy, text, watermark。留空则不传",
+            "default": ""
+          },
+          "size_base": {
+            "description": "短边基础像素",
+            "type": "int",
+            "hint": "按比例生成时的短边像素基准。如设为 2048，则 1:1→2048x2048、2:3→2048x3072。默认 1024。Krea-2 等模型支持 2048；部分模型仅支持 1024，设过高会被服务端拒绝",
+            "default": 1024
+          },
+          "poll_timeout": {
+            "description": "任务轮询超时(秒)",
+            "type": "int",
+            "hint": "魔搭为异步任务，插件每 3 秒轮询一次状态，超过此时间未完成则判超时",
+            "default": 180
+          }
+        }
+      }
+    }
+  },
+  "enable_natural_language": {
+    "description": "允许自然语言触发 LLM 生图",
+    "type": "bool",
+    "hint": "开启后，AstrBot 的聊天 LLM 可根据用户的自然语言要求调用文生图或图生图工具。聊天模型需支持工具调用，并启用对应工具；原有触发词指令不受影响。",
+    "default": false
+  },
+  "natural_language_t2i_model_id": {
+    "description": "自然语言默认文生图模型 ID",
+    "type": "string",
+    "hint": "填写上方「生图模型配置」中已有模型的 model_id，如 krea/Krea-2-Turbo。复用该模型的 API、密钥和参数；留空或未匹配时不提供自然语言文生图工具。相同 ID 有多项配置时使用第一项。",
+    "default": ""
+  },
+  "natural_language_i2i_model_id": {
+    "description": "自然语言默认图生图模型 ID",
+    "type": "string",
+    "hint": "填写上方已配置且支持图编辑的模型 ID，如 Qwen/Qwen-Image-Edit。复用该模型的 API、密钥和参数；留空或未匹配时不提供自然语言图生图工具。使用消息或引用中的第一张图片；相同 ID 使用第一项。",
+    "default": ""
+  },
+  "presets": {
+    "description": "自定义预设",
+    "type": "template_list",
+    "hint": "点击 + 添加新预设。预设通过 LLM 分析图片后自动生成改图提示词，再调用魔搭生图模型出图",
+    "default": [],
+    "templates": {
+      "preset_item": {
+        "name": "预设项",
+        "hint": "配置一个自定义预设（触发词 + LLM + 提示词 + 生图模型）",
+        "items": {
+          "trigger": {
+            "description": "触发词",
+            "type": "string",
+            "hint": "用户发送此词时触发该预设，如：动漫化",
+            "default": ""
+          },
+          "model_trigger": {
+            "description": "使用的生图模型",
+            "type": "string",
+            "hint": "填写生图模型的触发词（文生图或图生图触发词均可）来指定用哪个模型生成图片。留空则使用第一个模型",
+            "default": ""
+          },
+          "llm_url": {
+            "description": "LLM API 地址",
+            "type": "string",
+            "hint": "视觉语言模型 API 地址（OpenAI 兼容格式），如 https://api.openai.com/v1。也可填魔搭 LLM 地址 https://api-inference.modelscope.cn/v1",
+            "default": ""
+          },
+          "llm_apikey": {
+            "description": "LLM API Key",
+            "type": "string",
+            "hint": "视觉语言模型的 API Key",
+            "default": ""
+          },
+          "llm_model": {
+            "description": "LLM 模型 ID",
+            "type": "string",
+            "hint": "需支持视觉识别，如 gpt-4o、qwen-vl-max、Qwen/Qwen2.5-VL-72B-Instruct",
+            "default": "gpt-4o"
+          },
+          "preset_prompt": {
+            "description": "预设提示词",
+            "type": "text",
+            "hint": "发给语言模型的指令，用于分析图片并生成改图提示词",
+            "default": ""
+          }
+        }
+      }
+    }
+  }
+}
