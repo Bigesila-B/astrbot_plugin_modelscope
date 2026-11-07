@@ -70,7 +70,7 @@ def _ratio_to_size(ratio_or_size: str, base: int = 1024) -> str:
     "astrbot_plugin_modelscope",
     "Bigesila-B",
     "魔搭社区(ModelScope)图像生成插件",
-    "1.1.1",
+    "1.1.2",
     "https://github.com/Bigesila-B/astrbot_plugin_modelscope",
 )
 class ModelscopePlugin(Star):
