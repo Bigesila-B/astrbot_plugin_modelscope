@@ -1,6 +1,6 @@
 name: astrbot_plugin_modelscope
 display_name: 魔搭图像生成
 desc: 调用魔搭社区(ModelScope) API-Inference 进行文生图和图编辑。支持触发词指令、可开关的自然语言 LLM 工具调用、按模型 ID 指定文生图与图生图默认模型，以及多模型和自定义预设工作流。
-version: v1.1.2
+version: v1.1.3
 author: Bigesila-B
 repo: https://github.com/Bigesila-B/astrbot_plugin_modelscope

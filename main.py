@@ -70,7 +70,7 @@ def _ratio_to_size(ratio_or_size: str, base: int = 1024) -> str:
     "astrbot_plugin_modelscope",
     "Bigesila-B",
     "魔搭社区(ModelScope)图像生成插件",
-    "1.1.2",
+    "1.1.3",
     "https://github.com/Bigesila-B/astrbot_plugin_modelscope",
 )
 class ModelscopePlugin(Star):
@@ -228,9 +228,18 @@ class ModelscopePlugin(Star):
     def _find_preset(self, message_str: str) -> dict | None:
         for preset in self._presets:
             trigger = preset.get("trigger", "")
-            if trigger and trigger in message_str:
+            if self._text_after_trigger(message_str, trigger) is not None:
                 return preset
         return None
+
+    def _text_after_trigger(self, message: str, trigger: str) -> str | None:
+        if not trigger:
+            return None
+        if self.config.get("trigger_ignore_case", False):
+            match = re.search(re.escape(trigger), message, re.IGNORECASE)
+            return message[match.end():] if match else None
+        _, found, text = message.partition(trigger)
+        return text if found else None
 
     def _save_presets(self):
         self.config["presets"] = self._presets
@@ -279,14 +288,16 @@ class ModelscopePlugin(Star):
             t2i = model.get("trigger_t2i", "魔搭生图").strip()
             i2i = model.get("trigger_i2i", "魔搭改图").strip()
 
-            if t2i and t2i in message_str:
-                async for result in self._handle_text_to_image(event, message_str, model, t2i):
+            text = self._text_after_trigger(message_str, t2i)
+            if text is not None:
+                async for result in self._handle_text_to_image(event, text, model, t2i):
                     yield result
                 event.stop_event()
                 return
 
-            if i2i and i2i in message_str:
-                async for result in self._handle_image_edit(event, message_str, model, i2i):
+            text = self._text_after_trigger(message_str, i2i)
+            if text is not None:
+                async for result in self._handle_image_edit(event, text, model, i2i):
                     yield result
                 event.stop_event()
                 return
@@ -355,21 +366,16 @@ class ModelscopePlugin(Star):
         lines = ["📋 当前预设："]
         for p in self._presets:
             trigger = p.get("trigger", "?")
-            model = p.get("llm_model", "?")
+            use_llm = bool(p.get("llm_url") or p.get("llm_apikey"))
+            model = (p.get("llm_model") or "gpt-4o") if use_llm else "直接生图"
             prompt_preview = p.get("preset_prompt", "")[:40]
             lines.append(f"  • {trigger} → {model} | {prompt_preview}...")
         yield event.plain_result("\n".join(lines))
 
     # ── 指令处理 ──
 
-    async def _handle_text_to_image(self, event: AstrMessageEvent, message_str: str,
+    async def _handle_text_to_image(self, event: AstrMessageEvent, text: str,
                                     model: dict, trigger: str):
-        try:
-            text = message_str.split(trigger, 1)[1]
-        except IndexError:
-            yield event.plain_result(
-                f"❌ 请提供生成提示词\n格式：{trigger} [比例] 提示词\n示例：{trigger} 2:3 一只猫")
-            return
         prompt, custom_ratio = self._parse_prompt_and_ratio(text)
         if not prompt:
             yield event.plain_result(
@@ -384,14 +390,8 @@ class ModelscopePlugin(Star):
         else:
             yield event.plain_result(f"❌ 生成失败：{result.get('error') or '未知错误'}")
 
-    async def _handle_image_edit(self, event: AstrMessageEvent, message_str: str,
+    async def _handle_image_edit(self, event: AstrMessageEvent, text: str,
                                  model: dict, trigger: str):
-        try:
-            text = message_str.split(trigger, 1)[1]
-        except IndexError:
-            yield event.plain_result(
-                f"❌ 请提供改图提示词和图片\n格式：{trigger} [比例] 提示词 + 图片")
-            return
         prompt, custom_ratio = self._parse_prompt_and_ratio(text)
         images = await self._extract_images(event)
         if not prompt:
@@ -627,18 +627,13 @@ class ModelscopePlugin(Star):
         trigger = preset["trigger"]
         llm_url = preset.get("llm_url", "").strip()
         llm_apikey = preset.get("llm_apikey", "").strip()
-        llm_model = preset.get("llm_model", "gpt-4o").strip()
+        llm_model = preset.get("llm_model", "").strip() or "gpt-4o"
         preset_prompt = preset.get("preset_prompt", "").strip()
         model_trigger = preset.get("model_trigger", "").strip()
 
-        # LLM 始终需要（无论有无图片，提示词都会经 LLM 优化）
-        images = await self._extract_images(event)
-
-        if not llm_url:
-            yield event.plain_result(f"❌ 预设「{trigger}」未配置 LLM 地址")
-            return
-        if not llm_apikey:
-            yield event.plain_result(f"❌ 预设「{trigger}」未配置 LLM API Key")
+        use_llm = bool(llm_url or llm_apikey)
+        if use_llm and not (llm_url and llm_apikey):
+            yield event.plain_result(f"❌ 预设「{trigger}」的 LLM 地址和 API Key 请一起填写或一起留空")
             return
         if not preset_prompt:
             yield event.plain_result(f"❌ 预设「{trigger}」未配置提示词预设")
@@ -656,70 +651,31 @@ class ModelscopePlugin(Star):
             yield event.plain_result("❌ 未配置生图模型，请先在插件设置中添加模型")
             return
 
-        try:
-            extra_text = message_str.split(trigger, 1)[1].strip()
-        except IndexError:
-            extra_text = ""
-
-        # 从附加说明开头解析自定义比例（如 "4:3 描述"）
-        extra_text, custom_ratio = self._parse_prompt_and_ratio(extra_text)
-
-        # 无图片：仍经 LLM 优化提示词后文生图（不传图片给 LLM）
-        if not images:
-            if not extra_text:
-                yield event.plain_result(
-                    f"❌ 请提供提示词或附带图片\n格式：{trigger} [比例] 提示词\n或：{trigger} [比例] [附加说明] + 图片")
-                return
-            llm_prompt = f"{preset_prompt}\n\n用户附加要求：{extra_text}" if extra_text else preset_prompt
-            yield event.plain_result(f"⏳ 正在生成「{trigger}」，请稍候...")
-
-            llm_result = await self._call_llm_vision(llm_url, llm_apikey, llm_model, llm_prompt, [])
-            if llm_result.startswith("LLM 错误") or llm_result.startswith("LLM 调用失败"):
-                yield event.plain_result(f"❌ {llm_result}")
-                return
-            if not llm_result or not llm_result.strip():
-                yield event.plain_result("❌ 语言模型未返回有效提示词，请检查 LLM 配置")
-                return
-
-            aspect_ratio = self._resolve_aspect_ratio(custom_ratio, gen_model)
-            logger.info(f"[魔搭插件] 预设文生图(无图): custom_ratio={custom_ratio}, "
-                        f"aspect_ratio={aspect_ratio}, model={gen_model.get('model_id')}")
-            result = await self._call_api(
-                llm_result, images=[], aspect_ratio=aspect_ratio, model=gen_model)
-            if result.get("status") == "succeeded" and result.get("results"):
-                async for r in self._send_image_result(event, result["results"][0]["url"]):
-                    yield r
-            else:
-                yield event.plain_result(f"❌ 生成失败：{result.get('error') or '未知错误'}")
-            return
-
-        # 有图片：走 LLM 视觉分析 → 生图
-        llm_prompt = f"{preset_prompt}\n\n用户附加要求：{extra_text}" if extra_text else preset_prompt
-        llm_images = [self._compress_for_llm(img) for img in images]
-
+        extra_text, custom_ratio = self._parse_prompt_and_ratio(
+            self._text_after_trigger(message_str, trigger) or "")
+        images = await self._extract_images(event)
+        prompt = f"{preset_prompt}\n\n用户附加要求：{extra_text}" if extra_text else preset_prompt
         yield event.plain_result(f"⏳ 正在生成「{trigger}」，请稍候...")
 
-        llm_result = await self._call_llm_vision(llm_url, llm_apikey, llm_model, llm_prompt, llm_images)
-
-        if llm_result.startswith("LLM 错误") or llm_result.startswith("LLM 调用失败"):
-            yield event.plain_result(f"❌ {llm_result}")
-            return
-        if not llm_result or not llm_result.strip():
-            yield event.plain_result("❌ 语言模型未返回有效提示词，请检查 LLM 配置或图片是否可识别")
-            return
+        generation_images = []
+        if use_llm:
+            llm_images = [self._compress_for_llm(img) for img in images]
+            prompt = await self._call_llm_vision(llm_url, llm_apikey, llm_model, prompt, llm_images)
+            if prompt and prompt.startswith(("LLM 错误", "LLM 调用失败")):
+                yield event.plain_result(f"❌ {prompt}")
+                return
+            if not prompt or not prompt.strip():
+                yield event.plain_result("❌ 语言模型未返回有效提示词，请检查 LLM 配置或图片是否可识别")
+                return
+        elif images:
+            generation_images = [self._shrink_for_edit(images[0], max_side=2048)]
 
         # 比例优先级：用户指定 > 原图比例 > 默认
-        if custom_ratio:
-            aspect_ratio = self._resolve_aspect_ratio(custom_ratio, gen_model)
-        else:
-            img_ratio = await self._get_image_ratio_from_base64(images[0])
-            aspect_ratio = self._resolve_aspect_ratio(img_ratio) if img_ratio else self.config.get("aspect_ratio", "1:1")
-        logger.info(f"[魔搭插件] 预设比例: custom_ratio={custom_ratio}, "
-                    f"aspect_ratio={aspect_ratio}, model={gen_model.get('model_id')}")
-
-        # 调用魔搭生图模型出图（预设工作流通常为文生图，不传输入图片）
+        if not custom_ratio and images:
+            custom_ratio = await self._get_image_ratio_from_base64(images[0], gen_model)
+        aspect_ratio = self._resolve_aspect_ratio(custom_ratio, gen_model)
         result = await self._call_api(
-            llm_result, images=[], aspect_ratio=aspect_ratio, model=gen_model)
+            prompt, images=generation_images, aspect_ratio=aspect_ratio, model=gen_model)
 
         if result.get("status") == "succeeded" and result.get("results"):
             async for r in self._send_image_result(event, result["results"][0]["url"]):
